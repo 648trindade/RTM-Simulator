@@ -9,9 +9,9 @@ class Machine:
      2. Define a input alphabet (without blank symbol)
      8. Define a blank symbol (optional)
      3. Add state names
-     4. Add transitions
-     5. Define a starter state
-     6. Define final states
+     4. Define a starter state
+     5. Define final states
+     6. Add transitions
      7. Specify an input tape text
      9. Lock machine
      10. Run it or execute step by step"""
@@ -31,7 +31,7 @@ class Machine:
             'output': self.heads[2].tape
         }
         self.starterState = None
-        self.finalStates = list()
+        self.finalState = None
         self.blank = 'B'
         # variáveis de controle interno
         self.__locked = False
@@ -44,8 +44,7 @@ class Machine:
             raise Exception('State {name} already registered on machine.'.format(name=name))
         
         self.states['A'][name] = Machine.State(name, final)
-        if final:
-            self.finalStates.append(name)
+        self.finalState = name
     
     def addTransition(self, transition):
         if self.__locked:
@@ -72,8 +71,16 @@ class Machine:
         
         if not self.states['A'][name].final:
             self.states['A'][name].final = True
-            self.finalStates.append(name)
+            self.finalState = name
     
+    def setStarter(self, name):
+        if self.__locked:
+            raise Exception('Machine Locked. An unlock is necessary for editing.')
+        if name not in self.states['A'].keys():
+            raise Exception('Machine has no state {name} registered'.format(name=name))
+        
+        self.starterState = name
+
     def setInputTape(self, tape):
         if self.__locked:
             raise Exception('Machine Locked. An unlock is necessary for editing.')
@@ -85,16 +92,39 @@ class Machine:
         
         self.tapes['input'].content = str(tape)
     
+    def setInputAlphabet(self, alphabet):
+        if type(alphabet) not in (str, list):
+            raise Exception('Alphabet providade must be a string or a character list.')
+
+        if type(alphabet) is str:
+            self.inputAlphabet = alphabet
+        else:
+            self.inputAlphabet = ''.join(alphabet)
+    
+    def setTapeAlphabet(self, alphabet):
+        if type(alphabet) not in (str, list):
+            raise Exception('Alphabet providade must be a string or a character list.')
+
+        if type(alphabet) is str:
+            self.tapeAlphabet = alphabet + self.blank
+        else:
+            self.tapeAlphabet = ''.join(alphabet) + self.blank
+    
     def setBlankSymbol(self, symbol):
         if self.__locked:
             raise Exception('Machine Locked. An unlock is necessary for editing.')
         if len(symbol.strip()) > 1:
             raise Exception("Blank symbol must consist of one alphanumeric character.", symbol.strip())
         
-        self.blank = symbol.strip()
-        for obj in self.tapes + self.heads:
+        symbol = symbol.strip()
+        self.tapeAlphabet = self.tapeAlphabet.replace(self.blank, symbol)
+        self.blank = symbol
+        for obj in list(self.tapes.values()) + self.heads:
             obj.blank = self.blank
 
+    def getCurrentState(self):
+        return self.__state
+    
     def step(self):
         if not self.__locked:
             raise Exception('Machine unlocked. A lock is necessary for stepping.')
@@ -125,8 +155,8 @@ class Machine:
             raise Exception('Tape alphabet is empty.')
         if self.starterState is None:
             raise Exception('Starter state not set.')
-        if len(self.finalStates) is 0:
-            raise Exception('No final states.')
+        if self.finalState is None:
+            raise Exception('No final state.')
 
         if not self.__locked:
             self.states['B'].clear()
@@ -141,53 +171,57 @@ class Machine:
             self.states['C'][name] = Machine.State(name)
         self.states['C'][self.starterState].final = True
         for name, state in self.states['A'].items():
-            for transition in state.transitions():
+            for transition in state.transitions:
                 r_transition = transition.getReverse()
                 r_transition._objTo = self.states['C'][r_transition.stateTo]
                 self.states['C'][r_transition.stateFrom].addTransition(r_transition)
     
     def __generateCopyStates(self):
+        self.states['B']['-'] = Machine.State('-')
         self.states['B']['a'] = Machine.State('a')
         self.states['B']['A'] = Machine.State('A')
         self.states['B']['b'] = Machine.State('b')
-        self.states['B']['B'] = Machine.State('B')
-        # transitions to a
-        for name in self.finalStates:
-            transition = Transition(name, [self.blank, '/', self.blank], 'a', [self.blank, 0, self.blank])
-            transition._objTo = self.states['B']['a']
-            self.states['A'][name].addTransition(transition)
+        self.states['B']['+'] = Machine.State('+')
+        # transitions to -
+        name = self.finalState
+        t = Transition(name, ['/', '/', self.blank], '-', [0, 0, self.blank])
+        t._objTo = self.states['B']['-']
+        self.states['A'][name].addTransition(t)
+        # shift left and goes to a
+        t = Transition('-', [self.blank, '/', '/'], 'a', [self.blank, 0, 0])
+        t._objTo = self.states['B']['a']
+        self.states['B']['-'].addTransition(t)
+        t = Transition('-', ['/', '/', '/'], '-', [-1, 0, 0])
+        t._objTo = self.states['B']['-']
+        self.states['B']['-'].addTransition(t)
         # transitions from a
-        transition = Transition('a', ['/', '/', '/'], 'A', [1, 0, 1])
-        transition._objTo = self.states['B']['A']
-        self.states['B']['a'].addTransition(transition)
+        t = Transition('a', ['/', '/', '/'], 'A', [1, 0, 1])
+        t._objTo = self.states['B']['A']
+        self.states['B']['a'].addTransition(t)
         # transitions from A
-        transition = Transition('A', [self.blank, '/', self.blank], 'b', [self.blank, 0, self.blank])
-        transition._objTo = self.states['B']['b']
-        self.states['B']['A'].addTransition(transition)
-        for symbol in self.inputAlphabet:
-            transition = Transition('A', [symbol, '/', self.blank], 'a', [symbol, 0, symbol])
-            transition._objTo = self.states['B']['a']
-            self.states['B']['A'].addTransition(transition)
-        # transitions from b
-        transition = Transition('b', ['/', '/', '/'], 'B', [-1, 0, -1])
-        transition._objTo = self.states['B']['B']
-        self.states['B']['b'].addTransition(transition)
-        # transitions from B
-        for symbol in self.inputAlphabet:
-            transition = Transition('B', [symbol, '/', symbol], 'b', [symbol, 0, symbol])
-            transition._objTo = self.states['B']['b']
-            self.states['B']['B'].addTransition(transition)
-        for name in self.finalStates:
-            transition = Transition(name, [self.blank, '/', self.blank], name, [self.blank, 0, self.blank])
-            transition._objTo = self.states['C'][name]
-            self.states['B']['B'].addTransition(transition)
+        t = Transition('A', [self.blank, '/', self.blank], 'b', [self.blank, 0, self.blank])
+        t._objTo = self.states['B']['b']
+        self.states['B']['A'].addTransition(t)
+        for symbol in self.tapeAlphabet:
+            t = Transition('A', [symbol, '/', self.blank], 'a', [symbol, 0, symbol])
+            t._objTo = self.states['B']['a']
+            self.states['B']['A'].addTransition(t)
+        # shift one character left
+        for symbol in self.tapeAlphabet[:-1]:
+            t = Transition('b', [symbol, '/', self.blank], '+', [symbol, 0, symbol])
+            t._objTo = self.states['B']['+']
+            self.states['B']['b'].addTransition(t)
+        t = Transition('b', ['/', '/', '/'], '+', [-1, 0, 0])
+        t._objTo = self.states['B']['+']
+        self.states['B']['b'].addTransition(t)
+        t = Transition('+', ['/', '/', '/'], name, [0, 0, 0])
+        t._objTo = self.states['C'][name]
+        self.states['B']['+'].addTransition(t)
         # remove final properties of original states
-        for name in self.finalStates:
-            self.states['A'][name].final = False
+        self.states['A'][name].final = False
 
     def unlock(self):
-        for name in self.finalStates:
-            self.states['A'][name].final = True
+        self.states['A'][self.finalState].final = True
         self.__locked = False
 
     class Head:
@@ -240,7 +274,7 @@ class Machine:
                 if index < 0:
                     self.content = value.ljust(abs(index), self.blank) + self.content
                 else:
-                    self.content += value.rjust(index-len-1, self.blank)
+                    self.content += value.rjust(index-_len-1, self.blank)
         
         def __str__(self):
             return self.content
@@ -248,7 +282,7 @@ class Machine:
     class State:
         """Subclass that represents a state of a Turing machine."""
 
-        def __init__(self, name, final):
+        def __init__(self, name, final=False):
             if len(name.strip()) > 1:
                 raise Exception("State name must contain only one alphanumeric character.", name.strip())
             
@@ -289,10 +323,10 @@ class Transition:
         return True
 
     def __getitem__(self, index):
-        return self.symbolsOut[i]
+        return self.symbolsOut[index]
     
     def checkAlphabet(self, alphabet):
-        for symbol in self.symbolsIn + self.symbolsOut:
+        for symbol in [self.symbolsIn[0], self.symbolsOut[0]]:
             if symbol not in ('/',-1,0,1):
                 if symbol not in alphabet:
                     return [False, symbol]

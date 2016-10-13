@@ -148,6 +148,7 @@ class Machine:
         while True:
             result = self.step()
             if result != 'Stepped':
+                print(result)
                 break
     
     def lock(self):
